@@ -27,6 +27,7 @@ from tensorflow.python.ops import lookup_ops
 from .utils import iterator_utils
 from .utils import misc_utils as utils
 from .utils import vocab_utils
+from .AttRNN import AttRNNCell
 
 __all__ = [
     "get_initializer", "get_device_str", "create_train_model",
@@ -403,6 +404,9 @@ def _single_cell(unit_type, num_units, forget_bias, dropout, mode,
   elif unit_type == "gru":
     utils.print_out("  GRU", new_line=False)
     single_cell = tf.contrib.rnn.GRUCell(num_units)
+  elif unit_type == "AttRNN":
+    utils.print_out("  AttRNN", new_line=False)
+    single_cell = AttRNNCell(num_units)
   elif unit_type == "layer_norm_lstm":
     utils.print_out("  Layer Normalized LSTM, forget_bias=%g" % forget_bias,
                     new_line=False)
