@@ -67,6 +67,14 @@ class AttRNNCell(LayerRNNCell):
             self._activation = tf.math.tanh
         self._kernel_initializer = tf.keras.initializers.get(kernel_initializer)
         self._bias_initializer = tf.keras.initializers.get(bias_initializer)
+
+        # Layers for linearly projecting the queries, keys, and values.
+        self.q_dense_layer = tf.layers.Dense(2 * self._num_units, use_bias=False, name="q")
+        self.k_dense_layer = tf.layers.Dense(self._num_units, use_bias=False, name="k")
+        self.v_dense_layer = tf.layers.Dense(self._num_units, use_bias=False, name="v")
+
+        self.output_dense_layer = tf.layers.Dense(self._num_units,
+                                                  name="output_transform")
         self._layer_normalization = LayerNormalization(self._num_units)
 
     @property
@@ -98,34 +106,39 @@ class AttRNNCell(LayerRNNCell):
             self._init_state = _zero_state_tensors(self.state_size, batch_size, dtype=dtype)
         return self._init_state
 
-    @tf_utils.shape_type_conversion
-    def build(self, inputs_shape):
-        input_depth = inputs_shape[-1]
-        batch_size = inputs_shape[0]
-
-        self._q_kernel = self._add_kernel('q', [input_depth, 2 * self._num_units])
-        self._k_kernel = self._add_kernel('k', [input_depth, self._num_units])
-        self._v_kernel = self._add_kernel('v', [input_depth, self._num_units])
-
-        # self.zero_state(batch_size, self._dtype)
-
-        self.built = True
+    # @tf_utils.shape_type_conversion
+    # def build(self, inputs_shape):
+    #     input_depth = inputs_shape[-1]
+    #     batch_size = inputs_shape[0]
+    #
+    #     self._q_kernel = self._add_kernel('q', [input_depth, 2 * self._num_units])
+    #     self._k_kernel = self._add_kernel('k', [input_depth, self._num_units])
+    #     self._v_kernel = self._add_kernel('v', [input_depth, self._num_units])
+    #     self._output = self.add_variable("output", [input_depth, self._num_units], initializer=self._kernel_initializer)
+    #
+    #     # self.zero_state(batch_size, self._dtype)
+    #
+    #     self.built = True
 
     def call(self, inputs, state):
-        q = tf.matmul(inputs, self._q_kernel)
-        k = tf.matmul(state, self._k_kernel)
-        v = tf.matmul(state, self._v_kernel)
+        q = self.q_dense_layer(inputs)
+        k = self.k_dense_layer(state)
+        v = self.v_dense_layer(state)
+
+        q *= self._num_units ** -0.5
 
         q = tf.reshape(q,[-1,self._num_units])
         candidate = tf.matmul(q, k, transpose_b=True)
         candidate = tf.nn.softmax(candidate, name="attention_weights")
         candidate = tf.matmul(candidate,v)
+
+        candidate = self.output_dense_layer(candidate)
         candidate = self._layer_normalization(candidate)
 
         u, candidate = tf.split(value=candidate, num_or_size_splits=2, axis=0)
 
-        c = self._activation(candidate)
-        u = tf.sigmoid(u)
+        c = tf.sigmoid(candidate) + inputs
+        u = tf.tanh(u)
 
         new_h = u * state + (1 - u) * c
         return new_h, new_h
